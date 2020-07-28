@@ -35,7 +35,7 @@ jobs:
     - name: Check for format and lint issues
       run: |
         test -z $(gofmt -s -d -l .) # see https://github.com/golang/go/issues/24230
-        test -z $(golint ./...)
+        test -z "$(golint ./...)"
 
     - name: Check imports
       run: goimports -l .
