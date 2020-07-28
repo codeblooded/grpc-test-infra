@@ -34,10 +34,11 @@ jobs:
 
     - name: Check for format and lint issues
       run: |
+        # see https://github.com/golang/go/issues/24230
         fmtcode="$(gofmt -s -d -l .)"
-        echo $fmtcode && test -z $fmtcode # see https://github.com/golang/go/issues/24230
+        echo $fmtcode && test -z "$fmtcode"
         lintcode="$(golint ./...)"
-        echo $lintcode && test -z $lintcode
+        echo $lintcode && test -z "$lintcode"
 
     - name: Check imports
       run: goimports -l .
