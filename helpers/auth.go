@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package kubehelpers contains Kubernetes helper functions.
-package kubehelpers
+// Package helpers contains helper functions for interacting with Kubernetes
+// clusters and resources.
+package helpers
 
 import (
 	"k8s.io/client-go/kubernetes"
