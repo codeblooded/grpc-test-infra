@@ -1,6 +1,15 @@
-
+# Version tag for all images
+VERSION ?= "latest"
+# Version of the gRPC driver
+DRIVER_VERSION ?= "master"
+# Prefix for all images used as init containers, enabling use with registries
+# other than DockerHub
+INIT_IMAGE_PREFIX ?= ""
+# Prefix for all images used as runtime containers, enabling use with registries
+# other than DockerHub
+IMAGE_PREFIX ?= ""
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+IMG ?= controller:${VERSION}
 # Produce CRDs that work back to Kubernetes 1.11 (no version conversion)
 CRD_OPTIONS ?= "crd:trivialVersions=true"
 
@@ -40,7 +49,8 @@ deploy: manifests
 
 # Generate manifests e.g. CRD, RBAC etc.
 manifests: controller-gen
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role webhook paths="./..." output:crd:artifacts:config=config/crd/bases
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role webhook paths="./..." \
+		output:crd:artifacts:config=config/crd/bases
 
 # Run go fmt against code
 fmt:
@@ -54,13 +64,106 @@ vet:
 generate: controller-gen
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
 
-# Build the docker image
-docker-build: test
+configure:
+	go run config/cmd/configure.go config/defaults_template.yaml config/defaults.yaml
+
+# Build the manager image with the controller
+manager-image: configure
 	docker build . -t ${IMG}
 
-# Push the docker image
-docker-push:
+# Push the manager image to a docker registry
+push-manager-image:
 	docker push ${IMG}
+
+# Build the clone init container image
+clone-image:
+	docker build -t ${INIT_IMAGE_PREFIX}clone:${VERSION} containers/init/clone
+
+# Push the clone init container image to a docker registry
+push-clone-image:
+	docker push ${INIT_IMAGE_PREFIX}clone:${VERSION}
+
+# Build the ready init container image
+ready-image:
+	docker build -t ${INIT_IMAGE_PREFIX}ready:${VERSION} \
+		-f containers/init/ready/Dockerfile .
+
+# Push the ready init container image to a docker registry
+push-ready-image:
+	docker push ${INIT_IMAGE_PREFIX}ready:${VERSION}
+
+# Build the driver container image at the $DRIVER_VERSION
+driver-image:
+	docker build -t ${IMAGE_PREFIX}driver:${DRIVER_VERSION} \
+		--build-arg GITREF=${DRIVER_VERSION} containers/runtime/driver
+
+# Push the driver container image to a docker regisry
+push-driver-image:
+	docker push ${IMAGE_PREFIX}driver:${DRIVER_VERSION}
+
+# Build the C++ runtime image
+cxx-image:
+	docker build -t ${IMAGE_PREFIX}cxx:${VERSION} containers/runtime/cxx
+
+# Push the C++ runtime image to a docker registry
+push-cxx-image:
+	docker push ${IMAGE_PREFIX}cxx:${VERSION}
+
+# Build the Go runtime image
+go-image:
+	docker build -t ${IMAGE_PREFIX}go:${VERSION} containers/runtime/go
+
+# Push the Go runtime image to a docker registry
+push-go-image:
+	docker push ${IMAGE_PREFIX}go:${VERSION}
+
+# Build the Go runtime image
+java-image:
+	docker build -t ${IMAGE_PREFIX}java:${VERSION} containers/runtime/java
+
+# Push the Java runtime image to a docker registry
+push-java-image:
+	docker push ${IMAGE_PREFIX}java:${VERSION}
+
+# Build the Ruby runtime image
+ruby-image:
+	docker build -t ${IMAGE_PREFIX}ruby:${VERSION} containers/runtime/ruby
+
+# Push the Ruby runtime image to a docker registry
+push-ruby-image:
+	docker push ${IMAGE_PREFIX}ruby:${VERSION}
+
+# Build the Python runtime image
+python-image:
+	docker build -t ${IMAGE_PREFIX}python:${VERSION} containers/runtime/python
+
+# Push the Python runtime image to a docker registry
+push-python-image:
+	docker push ${IMAGE_PREFIX}python:${VERSION}
+
+# Build all init container and runtime container images
+all-images: \
+	clone-image \
+	ready-image \
+	driver-image \
+	cxx-image \
+	go-image \
+	java-image \
+	ruby-image \
+	python-image \
+	manager-image
+
+# Push all init container and runtime container images to a docker registry
+push-all-images: \
+	push-clone-image \
+	push-ready-image \
+	push-driver-image \
+	push-cxx-image \
+	push-go-image \
+	push-java-image \
+	push-ruby-image \
+	push-python-image \
+	push-manager-image
 
 # find or download controller-gen
 # download controller-gen if necessary
