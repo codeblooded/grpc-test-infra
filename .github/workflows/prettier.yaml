@@ -8,7 +8,7 @@ on:
 
 jobs:
   check:
-    name: Check for Formatting Issues
+    name: Format
     runs-on: ubuntu-latest
     steps:
     - name: Install Node.js
