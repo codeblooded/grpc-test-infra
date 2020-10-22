@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -56,21 +57,33 @@ type LoadTestReconciler struct {
 // or handling the termination of its pods.
 func (r *LoadTestReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	var err error
-
 	log := r.Log.WithValues("loadtest", req.NamespacedName)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	// Fetch the current state of the world.
+	loadtest := new(grpcv1.LoadTest)
+	if err = r.Get(ctx, req.NamespacedName, loadtest); err != nil {
+		log.Error(err, "failed to get loadtest", "name", req.NamespacedName)
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
 
-	// Listing nodes will be required to achieve gang scheduling; however, this is
-	// not implemented at this time. Therefore, it is commented here for later:
-	//
-	//nodes := new(corev1.NodeList)
-	//if err = r.List(ctx, nodes); err != nil {
-	//	log.Error(err, "failed to list nodes")
-	//	return ctrl.Result{Requeue: true}, err
-	//}
+	if loadtest.Status.State.IsTerminated() {
+		return ctrl.Result{}, nil
+	}
+
+	// TODO(codeblooded): Consider moving this to a mutating webhook
+	loadtestWithDefaults := loadtest.DeepCopy()
+	if err = r.Defaults.SetLoadTestDefaults(loadtestWithDefaults); err != nil {
+		log.Error(err, "failed to clone test with defaults")
+		return ctrl.Result{}, err
+	}
+	if !reflect.DeepEqual(loadtest, loadtestWithDefaults) {
+		if err = r.Update(ctx, loadtestWithDefaults); err != nil {
+			log.Error(err, "failed to update test with defaults")
+			return ctrl.Result{}, err
+		}
+	}
 
 	pods := new(corev1.PodList)
 	if err = r.List(ctx, pods, client.InNamespace(req.Namespace)); err != nil {
@@ -78,42 +91,10 @@ func (r *LoadTestReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return ctrl.Result{Requeue: true}, err
 	}
 
-	loadtests := new(grpcv1.LoadTestList)
-	if err = r.List(ctx, loadtests); err != nil {
-		log.Error(err, "failed to list loadtests")
-		return ctrl.Result{Requeue: true}, err
-	}
-
-	loadtest := new(grpcv1.LoadTest)
-	if err = r.Get(ctx, req.NamespacedName, loadtest); err != nil {
-		log.Error(err, "failed to get loadtest", "name", req.NamespacedName)
-
-		// do not requeue, the load test may have been deleted
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-
-	if loadtest.Status.State.IsTerminated() {
-		// the load test has already completed, this is probably garbage collection
-		return ctrl.Result{}, nil
-	}
-
-	loadtest = loadtest.DeepCopy()
-	if err = r.Defaults.SetLoadTestDefaults(loadtest); err != nil {
-		log.Error(err, "failed to set defaults on loadtest")
-
-		// do not requeue, something has gone horribly wrong
-		return ctrl.Result{}, err
-	}
-	if err = r.Update(ctx, loadtest); err != nil {
-		log.Error(err, "failed to update loadtest with defaults")
-		return ctrl.Result{Requeue: true}, err
-	}
-
 	ownedPods := status.PodsForLoadTest(loadtest, pods.Items)
 	loadtest.Status = status.ForLoadTest(loadtest, ownedPods)
-
 	if err = r.Status().Update(ctx, loadtest); err != nil {
-		log.Error(err, "failed to update loadtest status")
+		log.Error(err, "failed to update test status")
 		return ctrl.Result{Requeue: true}, err
 	}
 
@@ -130,25 +111,19 @@ func (r *LoadTestReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 
 	if err != nil {
 		log.Error(err, "could not initialize new pod", "pod", pod)
-	}
-	if pod != nil {
-		if err = ctrl.SetControllerReference(loadtest, pod, r.Scheme); err != nil {
-			log.Error(err, "could not set controller reference on pod", "pod", pod)
-			return ctrl.Result{Requeue: true}, err
-		}
-
-		if err = r.Create(ctx, pod); err != nil {
-			log.Error(err, "could not create new pod", "pod", pod)
-			return ctrl.Result{Requeue: true}, err
-		}
+		return ctrl.Result{}, err
 	}
 
-	// TODO: Add logic to schedule the next missing pod.
+	if err = ctrl.SetControllerReference(loadtest, pod, r.Scheme); err != nil {
+		log.Error(err, "could not set controller reference on pod, pod will not be garbage collected", "pod", pod)
+		return ctrl.Result{}, err
+	}
 
-	// PLACEHOLDERS!
-	_ = pods
-	_ = loadtests
-	_ = loadtest
+	if err = r.Create(ctx, pod); err != nil {
+		log.Error(err, "could not create new pod", "pod", pod)
+		return ctrl.Result{Requeue: true}, err
+	}
+
 	return ctrl.Result{}, nil
 }
 
