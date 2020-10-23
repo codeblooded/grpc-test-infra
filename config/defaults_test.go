@@ -24,12 +24,12 @@ import (
 )
 
 var _ = Describe("Defaults", func() {
-	var loadtest *grpcv1.LoadTest
+	var test *grpcv1.LoadTest
 	var defaults *Defaults
 	var defaultImageMap *imageMap
 
 	BeforeEach(func() {
-		loadtest = completeLoadTest.DeepCopy()
+		test = completeLoadTest.DeepCopy()
 
 		defaults = &Defaults{
 			ComponentNamespace: "component-default",
@@ -63,23 +63,23 @@ var _ = Describe("Defaults", func() {
 
 	Context("metadata", func() {
 		It("sets default namespace when unset", func() {
-			loadtest.Namespace = ""
+			test.Namespace = ""
 
 			namespace := "foobar-buzz"
 			defaults.ComponentNamespace = namespace
 
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(loadtest.Namespace).To(Equal(namespace))
+			Expect(test.Namespace).To(Equal(namespace))
 		})
 
 		It("does not override namespace when set", func() {
 			namespace := "experimental"
-			loadtest.Namespace = namespace
+			test.Namespace = namespace
 
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(loadtest.Namespace).To(Equal(namespace))
+			Expect(test.Namespace).To(Equal(namespace))
 
 		})
 	})
@@ -89,39 +89,39 @@ var _ = Describe("Defaults", func() {
 		var component *grpcv1.Component
 
 		BeforeEach(func() {
-			driver = loadtest.Spec.Driver
+			driver = test.Spec.Driver
 			Expect(driver).ToNot(BeNil())
 
 			component = &driver.Component
 		})
 
 		It("sets default driver when nil", func() {
-			loadtest.Spec.Driver = nil
+			test.Spec.Driver = nil
 
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(loadtest.Spec.Driver).ToNot(BeNil())
+			Expect(test.Spec.Driver).ToNot(BeNil())
 		})
 
 		It("does not override driver when set", func() {
 			driver := new(grpcv1.Driver)
-			loadtest.Spec.Driver = driver
+			test.Spec.Driver = driver
 
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(loadtest.Spec.Driver).To(Equal(driver))
+			Expect(test.Spec.Driver).To(Equal(driver))
 		})
 
 		It("sets default name when unspecified", func() {
 			component.Name = nil
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(component.Name).ToNot(BeNil())
 		})
 
 		It("sets default pool when unspecified", func() {
 			component.Pool = nil
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(component.Pool).ToNot(BeNil())
 			Expect(*component.Pool).To(Equal(defaults.DriverPool))
@@ -131,7 +131,7 @@ var _ = Describe("Defaults", func() {
 			pool := "example-pool"
 			component.Pool = &pool
 
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(component.Pool).ToNot(BeNil())
 			Expect(*component.Pool).To(Equal(pool))
@@ -146,7 +146,7 @@ var _ = Describe("Defaults", func() {
 			component.Clone.GitRef = &gitRef
 			component.Clone.Image = nil
 
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(component.Clone).ToNot(BeNil())
 			Expect(component.Clone.Image).ToNot(BeNil())
@@ -164,7 +164,7 @@ var _ = Describe("Defaults", func() {
 			expectedBuildImage, err := defaultImageMap.buildImage(component.Language)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = defaults.SetLoadTestDefaults(loadtest)
+			err = defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 
 			Expect(component.Build).ToNot(BeNil())
@@ -180,7 +180,7 @@ var _ = Describe("Defaults", func() {
 			component.Language = "fortran" // unknown language
 			component.Build = build
 
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).To(HaveOccurred())
 		})
 
@@ -194,7 +194,7 @@ var _ = Describe("Defaults", func() {
 			component.Language = "fortran" // unknown language
 			component.Build = build
 
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 
 		})
@@ -203,7 +203,7 @@ var _ = Describe("Defaults", func() {
 			component.Language = "cxx"
 			component.Run.Image = nil
 
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 
 			Expect(component.Run.Image).ToNot(BeNil())
@@ -217,7 +217,7 @@ var _ = Describe("Defaults", func() {
 			component.Run.Image = &image
 			component.Run.Command = []string{"do-stuff"}
 
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 		})
 	})
@@ -227,20 +227,20 @@ var _ = Describe("Defaults", func() {
 		var component *grpcv1.Component
 
 		BeforeEach(func() {
-			server = &loadtest.Spec.Servers[0]
+			server = &test.Spec.Servers[0]
 			component = &server.Component
 		})
 
 		It("sets default name when unspecified", func() {
 			component.Name = nil
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(component.Name).ToNot(BeNil())
 		})
 
 		It("sets default pool when unspecified", func() {
 			component.Pool = nil
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(component.Pool).ToNot(BeNil())
 			Expect(*component.Pool).To(Equal(defaults.WorkerPool))
@@ -250,7 +250,7 @@ var _ = Describe("Defaults", func() {
 			pool := "example-pool"
 			component.Pool = &pool
 
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(component.Pool).ToNot(BeNil())
 			Expect(*component.Pool).To(Equal(pool))
@@ -265,7 +265,7 @@ var _ = Describe("Defaults", func() {
 			component.Clone.GitRef = &gitRef
 			component.Clone.Image = nil
 
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(component.Clone).ToNot(BeNil())
 			Expect(component.Clone.Image).ToNot(BeNil())
@@ -283,7 +283,7 @@ var _ = Describe("Defaults", func() {
 			expectedBuildImage, err := defaultImageMap.buildImage(component.Language)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = defaults.SetLoadTestDefaults(loadtest)
+			err = defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 
 			Expect(component.Build).ToNot(BeNil())
@@ -299,7 +299,7 @@ var _ = Describe("Defaults", func() {
 			component.Language = "fortran" // unknown language
 			component.Build = build
 
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).To(HaveOccurred())
 		})
 
@@ -313,7 +313,7 @@ var _ = Describe("Defaults", func() {
 			component.Language = "fortran" // unknown language
 			component.Build = build
 
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 
 		})
@@ -325,7 +325,7 @@ var _ = Describe("Defaults", func() {
 			expectedRunImage, err := defaultImageMap.runImage(component.Language)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = defaults.SetLoadTestDefaults(loadtest)
+			err = defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 
 			Expect(component.Run.Image).ToNot(BeNil())
@@ -339,7 +339,7 @@ var _ = Describe("Defaults", func() {
 			component.Run.Image = nil      // no explicit image
 			component.Run.Command = []string{"do-stuff"}
 
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).To(HaveOccurred())
 		})
 
@@ -350,7 +350,7 @@ var _ = Describe("Defaults", func() {
 			component.Run.Image = &image
 			component.Run.Command = []string{"do-stuff"}
 
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 		})
 	})
@@ -360,20 +360,20 @@ var _ = Describe("Defaults", func() {
 		var component *grpcv1.Component
 
 		BeforeEach(func() {
-			client = &loadtest.Spec.Clients[0]
+			client = &test.Spec.Clients[0]
 			component = &client.Component
 		})
 
 		It("sets default name when unspecified", func() {
 			component.Name = nil
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(component.Name).ToNot(BeNil())
 		})
 
 		It("sets default pool when unspecified", func() {
 			component.Pool = nil
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(component.Pool).ToNot(BeNil())
 			Expect(*component.Pool).To(Equal(defaults.WorkerPool))
@@ -383,7 +383,7 @@ var _ = Describe("Defaults", func() {
 			pool := "example-pool"
 			component.Pool = &pool
 
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(component.Pool).ToNot(BeNil())
 			Expect(*component.Pool).To(Equal(pool))
@@ -398,7 +398,7 @@ var _ = Describe("Defaults", func() {
 			component.Clone.GitRef = &gitRef
 			component.Clone.Image = nil
 
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(component.Clone).ToNot(BeNil())
 			Expect(component.Clone.Image).ToNot(BeNil())
@@ -416,7 +416,7 @@ var _ = Describe("Defaults", func() {
 			expectedBuildImage, err := defaultImageMap.buildImage(component.Language)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = defaults.SetLoadTestDefaults(loadtest)
+			err = defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 
 			Expect(component.Build).ToNot(BeNil())
@@ -432,7 +432,7 @@ var _ = Describe("Defaults", func() {
 			component.Language = "fortran" // unknown language
 			component.Build = build
 
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).To(HaveOccurred())
 		})
 
@@ -446,7 +446,7 @@ var _ = Describe("Defaults", func() {
 			component.Language = "fortran" // unknown language
 			component.Build = build
 
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 
 		})
@@ -458,7 +458,7 @@ var _ = Describe("Defaults", func() {
 			expectedRunImage, err := defaultImageMap.runImage(component.Language)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = defaults.SetLoadTestDefaults(loadtest)
+			err = defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 
 			Expect(component.Run.Image).ToNot(BeNil())
@@ -470,7 +470,7 @@ var _ = Describe("Defaults", func() {
 			component.Run.Image = nil      // no explicit image
 			component.Run.Command = []string{"do-stuff"}
 
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).To(HaveOccurred())
 		})
 
@@ -481,7 +481,7 @@ var _ = Describe("Defaults", func() {
 			component.Run.Image = &image
 			component.Run.Command = []string{"do-stuff"}
 
-			err := defaults.SetLoadTestDefaults(loadtest)
+			err := defaults.SetLoadTestDefaults(test)
 			Expect(err).ToNot(HaveOccurred())
 		})
 	})
