@@ -20,11 +20,11 @@ var _ = Describe("Test Environment", func() {
 })
 
 var _ = Describe("Pod Creation", func() {
-	var loadtest *grpcv1.LoadTest
+	var test *grpcv1.LoadTest
 	var defs *config.Defaults
 
 	BeforeEach(func() {
-		loadtest = newLoadTest()
+		test = newLoadTest()
 
 		defs = &config.Defaults{
 			DriverPool:  "drivers",
@@ -58,14 +58,14 @@ var _ = Describe("Pod Creation", func() {
 		var component *grpcv1.Component
 
 		BeforeEach(func() {
-			component = &loadtest.Spec.Clients[0].Component
+			component = &test.Spec.Clients[0].Component
 		})
 
 		It("sets namespace to match loadtest", func() {
 			namespace := "foobar"
-			loadtest.Namespace = namespace
+			test.Namespace = namespace
 
-			pod, err := newClientPod(defs, loadtest, component)
+			pod, err := newClientPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(pod.Namespace).To(Equal(namespace))
 		})
@@ -74,28 +74,28 @@ var _ = Describe("Pod Creation", func() {
 			name := "foo-bar-buzz"
 			component.Name = &name
 
-			pod, err := newClientPod(defs, loadtest, component)
+			pod, err := newClientPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(pod.Labels[config.ComponentNameLabel]).To(Equal(name))
 		})
 
 		It("sets loadtest-role label to client", func() {
-			pod, err := newClientPod(defs, loadtest, component)
+			pod, err := newClientPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(pod.Labels[config.RoleLabel]).To(Equal(config.ClientRole))
 		})
 
 		It("sets loadtest label", func() {
-			pod, err := newClientPod(defs, loadtest, component)
+			pod, err := newClientPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(pod.Labels[config.LoadTestLabel]).To(Equal(loadtest.Name))
+			Expect(pod.Labels[config.LoadTestLabel]).To(Equal(test.Name))
 		})
 
 		It("sets node selector for appropriate pool", func() {
 			customPool := "custom-pool"
 			component.Pool = &customPool
 
-			pod, err := newClientPod(defs, loadtest, component)
+			pod, err := newClientPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(pod.Spec.NodeSelector["pool"]).To(Equal(customPool))
 		})
@@ -104,7 +104,7 @@ var _ = Describe("Pod Creation", func() {
 			cloneImage := "docker.pkg.github.com/grpc/test-infra/fake-image"
 			component.Clone.Image = &cloneImage
 
-			pod, err := newClientPod(defs, loadtest, component)
+			pod, err := newClientPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
 			expectedContainer := newCloneContainer(component.Clone)
@@ -120,7 +120,7 @@ var _ = Describe("Pod Creation", func() {
 			build.Args = []string{"build", "//target"}
 			component.Build = build
 
-			pod, err := newClientPod(defs, loadtest, component)
+			pod, err := newClientPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
 			expectedContainer := newBuildContainer(component.Build)
@@ -136,7 +136,7 @@ var _ = Describe("Pod Creation", func() {
 			}
 			component.Run = run
 
-			pod, err := newClientPod(defs, loadtest, component)
+			pod, err := newClientPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
 			expectedContainer := newRunContainer(run)
@@ -145,13 +145,13 @@ var _ = Describe("Pod Creation", func() {
 		})
 
 		It("disables retries", func() {
-			pod, err := newClientPod(defs, loadtest, component)
+			pod, err := newClientPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(pod.Spec.RestartPolicy).To(Equal(corev1.RestartPolicyNever))
 		})
 
 		It("exposes a driver port", func() {
-			pod, err := newClientPod(defs, loadtest, component)
+			pod, err := newClientPod(defs, test, component)
 			port := newContainerPort("driver", 10000)
 			Expect(err).To(BeNil())
 			Expect(pod.Spec.Containers[0].Ports).To(ContainElement(port))
@@ -160,7 +160,7 @@ var _ = Describe("Pod Creation", func() {
 		It("sets driver port flag in run container args", func() {
 			component.Run.Args = nil
 
-			pod, err := newClientPod(defs, loadtest, component)
+			pod, err := newClientPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
 			// TODO: Remove container lookup by index
@@ -171,7 +171,7 @@ var _ = Describe("Pod Creation", func() {
 		})
 
 		It("sets bazel cache volume", func() {
-			pod, err := newClientPod(defs, loadtest, component)
+			pod, err := newClientPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
 			volume := newBazelCacheVolume()
@@ -179,7 +179,7 @@ var _ = Describe("Pod Creation", func() {
 		})
 
 		It("sets workspace volume", func() {
-			pod, err := newClientPod(defs, loadtest, component)
+			pod, err := newClientPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
 			volume := newWorkspaceVolume()
@@ -191,23 +191,23 @@ var _ = Describe("Pod Creation", func() {
 		var component *grpcv1.Component
 
 		BeforeEach(func() {
-			component = &loadtest.Spec.Driver.Component
+			component = &test.Spec.Driver.Component
 		})
 
 		It("sets namespace to match loadtest", func() {
 			namespace := "foobar"
-			loadtest.Namespace = namespace
+			test.Namespace = namespace
 
-			pod, err := newDriverPod(defs, loadtest, component)
+			pod, err := newDriverPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(pod.Namespace).To(Equal(namespace))
 		})
 
 		It("adds a scenario volume", func() {
 			scenario := "example"
-			loadtest.Spec.Scenarios[0] = grpcv1.Scenario{Name: scenario}
+			test.Spec.Scenarios[0] = grpcv1.Scenario{Name: scenario}
 
-			pod, err := newDriverPod(defs, loadtest, component)
+			pod, err := newDriverPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
 			expectedVolume := newScenarioVolume(scenario)
@@ -216,45 +216,45 @@ var _ = Describe("Pod Creation", func() {
 
 		It("adds a scenario volume mount", func() {
 			scenario := "example"
-			loadtest.Spec.Scenarios[0] = grpcv1.Scenario{Name: scenario}
+			test.Spec.Scenarios[0] = grpcv1.Scenario{Name: scenario}
 
-			pod, err := newDriverPod(defs, loadtest, component)
+			pod, err := newDriverPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
-			rc := &pod.Spec.Containers[0]
+			runContainer := &pod.Spec.Containers[0]
 			expectedMount := newScenarioVolumeMount(scenario)
-			Expect(expectedMount).To(BeElementOf(rc.VolumeMounts))
+			Expect(expectedMount).To(BeElementOf(runContainer.VolumeMounts))
 		})
 
 		It("sets scenario file environment variable", func() {
 			scenario := "example-scenario"
-			loadtest.Spec.Scenarios[0] = grpcv1.Scenario{Name: scenario}
+			test.Spec.Scenarios[0] = grpcv1.Scenario{Name: scenario}
 
-			pod, err := newDriverPod(defs, loadtest, component)
+			pod, err := newDriverPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
-			rc := &pod.Spec.Containers[0]
+			runContainer := &pod.Spec.Containers[0]
 			expectedEnv := newScenarioFileEnvVar(scenario)
-			Expect(expectedEnv).To(BeElementOf(rc.Env))
+			Expect(expectedEnv).To(BeElementOf(runContainer.Env))
 		})
 
 		It("sets loadtest-role label to driver", func() {
-			pod, err := newDriverPod(defs, loadtest, component)
+			pod, err := newDriverPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(pod.Labels[config.RoleLabel]).To(Equal(config.DriverRole))
 		})
 
 		It("sets loadtest label", func() {
-			pod, err := newDriverPod(defs, loadtest, component)
+			pod, err := newDriverPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(pod.Labels[config.LoadTestLabel]).To(Equal(loadtest.Name))
+			Expect(pod.Labels[config.LoadTestLabel]).To(Equal(test.Name))
 		})
 
 		It("sets component-name label", func() {
 			name := "foo-bar-buzz"
 			component.Name = &name
 
-			pod, err := newDriverPod(defs, loadtest, component)
+			pod, err := newDriverPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(pod.Labels[config.ComponentNameLabel]).To(Equal(name))
 		})
@@ -263,7 +263,7 @@ var _ = Describe("Pod Creation", func() {
 			customPool := "custom-pool"
 			component.Pool = &customPool
 
-			pod, err := newDriverPod(defs, loadtest, component)
+			pod, err := newDriverPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(pod.Spec.NodeSelector["pool"]).To(Equal(customPool))
 		})
@@ -273,7 +273,7 @@ var _ = Describe("Pod Creation", func() {
 			component.Clone = new(grpcv1.Clone)
 			component.Clone.Image = &cloneImage
 
-			pod, err := newServerPod(defs, loadtest, component)
+			pod, err := newServerPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
 			expectedContainer := newCloneContainer(component.Clone)
@@ -289,7 +289,7 @@ var _ = Describe("Pod Creation", func() {
 			build.Args = []string{"build", "//target"}
 			component.Build = build
 
-			pod, err := newDriverPod(defs, loadtest, component)
+			pod, err := newDriverPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
 			expectedContainer := newBuildContainer(component.Build)
@@ -297,16 +297,16 @@ var _ = Describe("Pod Creation", func() {
 		})
 
 		It("sets ready init container", func() {
-			pod, err := newDriverPod(defs, loadtest, component)
+			pod, err := newDriverPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
-			expectedContainer := newReadyContainer(defs, loadtest)
+			expectedContainer := newReadyContainer(defs, test)
 			Expect(pod.Spec.InitContainers).To(ContainElement(expectedContainer))
 		})
 
 		It("sets run container", func() {
 			scenario := "example"
-			loadtest.Spec.Scenarios[0] = grpcv1.Scenario{Name: scenario}
+			test.Spec.Scenarios[0] = grpcv1.Scenario{Name: scenario}
 
 			image := "golang:1.14"
 			run := grpcv1.Run{
@@ -316,27 +316,27 @@ var _ = Describe("Pod Creation", func() {
 			}
 			component.Run = run
 
-			pod, err := newDriverPod(defs, loadtest, component)
+			pod, err := newDriverPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
-			rc := newRunContainer(run)
-			addReadyInitContainer(defs, loadtest, &pod.Spec, &rc)
+			runContainer := newRunContainer(run)
+			addReadyInitContainer(defs, test, &pod.Spec, &runContainer)
 
-			rc.VolumeMounts = append(rc.VolumeMounts, newScenarioVolumeMount(scenario))
-			rc.Env = append(rc.Env, newScenarioFileEnvVar(scenario))
-			rc.Env = append(rc.Env, newBigQueryTableEnvVar(*loadtest.Spec.Results.BigQueryTable))
+			runContainer.VolumeMounts = append(runContainer.VolumeMounts, newScenarioVolumeMount(scenario))
+			runContainer.Env = append(runContainer.Env, newScenarioFileEnvVar(scenario))
+			runContainer.Env = append(runContainer.Env, newBigQueryTableEnvVar(*test.Spec.Results.BigQueryTable))
 
-			Expect(pod.Spec.Containers).To(ContainElement(rc))
+			Expect(pod.Spec.Containers).To(ContainElement(runContainer))
 		})
 
 		It("disables retries", func() {
-			pod, err := newDriverPod(defs, loadtest, component)
+			pod, err := newDriverPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(pod.Spec.RestartPolicy).To(Equal(corev1.RestartPolicyNever))
 		})
 
 		It("sets bazel cache volume", func() {
-			pod, err := newDriverPod(defs, loadtest, component)
+			pod, err := newDriverPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
 			volume := newBazelCacheVolume()
@@ -344,7 +344,7 @@ var _ = Describe("Pod Creation", func() {
 		})
 
 		It("sets workspace volume", func() {
-			pod, err := newDriverPod(defs, loadtest, component)
+			pod, err := newDriverPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
 			volume := newWorkspaceVolume()
@@ -353,11 +353,11 @@ var _ = Describe("Pod Creation", func() {
 
 		It("sets big query table env variable", func() {
 			table := "example-dataset.table1"
-			loadtest.Spec.Results = &grpcv1.Results{
+			test.Spec.Results = &grpcv1.Results{
 				BigQueryTable: optional.StringPtr(table),
 			}
 
-			pod, err := newDriverPod(defs, loadtest, component)
+			pod, err := newDriverPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
 			expectedVar := newBigQueryTableEnvVar(table)
@@ -365,9 +365,9 @@ var _ = Describe("Pod Creation", func() {
 		})
 
 		It("does not set big query table env variable when table name not specified", func() {
-			loadtest.Spec.Results = nil
+			test.Spec.Results = nil
 
-			pod, err := newDriverPod(defs, loadtest, component)
+			pod, err := newDriverPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
 			for _, env := range pod.Spec.Containers[0].Env {
@@ -380,26 +380,26 @@ var _ = Describe("Pod Creation", func() {
 		var component *grpcv1.Component
 
 		BeforeEach(func() {
-			component = &loadtest.Spec.Servers[0].Component
+			component = &test.Spec.Servers[0].Component
 		})
 
 		It("sets namespace to match loadtest", func() {
 			namespace := "foobar"
-			loadtest.Namespace = namespace
+			test.Namespace = namespace
 
-			pod, err := newServerPod(defs, loadtest, component)
+			pod, err := newServerPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(pod.Namespace).To(Equal(namespace))
 		})
 
 		It("sets loadtest-role label to server", func() {
-			pod, err := newServerPod(defs, loadtest, component)
+			pod, err := newServerPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(pod.Labels[config.RoleLabel]).To(Equal(config.ServerRole))
 		})
 
 		It("exposes a driver port", func() {
-			pod, err := newServerPod(defs, loadtest, component)
+			pod, err := newServerPod(defs, test, component)
 			port := newContainerPort("driver", 10000)
 			Expect(err).To(BeNil())
 			Expect(pod.Spec.Containers[0].Ports).To(ContainElement(port))
@@ -408,7 +408,7 @@ var _ = Describe("Pod Creation", func() {
 		It("sets driver port flag in run container args", func() {
 			component.Run.Args = nil
 
-			pod, err := newServerPod(defs, loadtest, component)
+			pod, err := newServerPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
 			// TODO: Remove container lookup by index
@@ -419,7 +419,7 @@ var _ = Describe("Pod Creation", func() {
 		})
 
 		It("exposes a server port", func() {
-			pod, err := newServerPod(defs, loadtest, component)
+			pod, err := newServerPod(defs, test, component)
 			port := newContainerPort("server", 10010)
 			Expect(err).To(BeNil())
 			Expect(pod.Spec.Containers[0].Ports).To(ContainElement(port))
@@ -428,7 +428,7 @@ var _ = Describe("Pod Creation", func() {
 		It("sets server port flag in run container args", func() {
 			component.Run.Args = nil
 
-			pod, err := newServerPod(defs, loadtest, component)
+			pod, err := newServerPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
 			// TODO: Remove container lookup by index
@@ -439,16 +439,16 @@ var _ = Describe("Pod Creation", func() {
 		})
 
 		It("sets loadtest label", func() {
-			pod, err := newServerPod(defs, loadtest, component)
+			pod, err := newServerPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(pod.Labels[config.LoadTestLabel]).To(Equal(loadtest.Name))
+			Expect(pod.Labels[config.LoadTestLabel]).To(Equal(test.Name))
 		})
 
 		It("sets component-name label", func() {
 			name := "foo-bar-buzz"
 			component.Name = &name
 
-			pod, err := newServerPod(defs, loadtest, component)
+			pod, err := newServerPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(pod.Labels[config.ComponentNameLabel]).To(Equal(name))
 		})
@@ -457,7 +457,7 @@ var _ = Describe("Pod Creation", func() {
 			customPool := "custom-pool"
 			component.Pool = &customPool
 
-			pod, err := newServerPod(defs, loadtest, component)
+			pod, err := newServerPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(pod.Spec.NodeSelector["pool"]).To(Equal(customPool))
 		})
@@ -466,7 +466,7 @@ var _ = Describe("Pod Creation", func() {
 			cloneImage := "docker.pkg.github.com/grpc/test-infra/fake-image"
 			component.Clone.Image = &cloneImage
 
-			pod, err := newServerPod(defs, loadtest, component)
+			pod, err := newServerPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
 			expectedContainer := newCloneContainer(component.Clone)
@@ -482,7 +482,7 @@ var _ = Describe("Pod Creation", func() {
 			build.Args = []string{"build", "//target"}
 			component.Build = build
 
-			pod, err := newServerPod(defs, loadtest, component)
+			pod, err := newServerPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
 			expectedContainer := newBuildContainer(component.Build)
@@ -498,7 +498,7 @@ var _ = Describe("Pod Creation", func() {
 			}
 			component.Run = run
 
-			pod, err := newServerPod(defs, loadtest, component)
+			pod, err := newServerPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
 			expectedContainer := newRunContainer(run)
@@ -508,13 +508,13 @@ var _ = Describe("Pod Creation", func() {
 		})
 
 		It("disables retries", func() {
-			pod, err := newServerPod(defs, loadtest, component)
+			pod, err := newServerPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(pod.Spec.RestartPolicy).To(Equal(corev1.RestartPolicyNever))
 		})
 
 		It("sets bazel cache volume", func() {
-			pod, err := newServerPod(defs, loadtest, component)
+			pod, err := newServerPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
 			volume := newBazelCacheVolume()
@@ -522,7 +522,7 @@ var _ = Describe("Pod Creation", func() {
 		})
 
 		It("sets workspace volume", func() {
-			pod, err := newServerPod(defs, loadtest, component)
+			pod, err := newServerPod(defs, test, component)
 			Expect(err).ToNot(HaveOccurred())
 
 			volume := newWorkspaceVolume()
