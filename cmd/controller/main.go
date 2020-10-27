@@ -36,13 +36,13 @@ import (
 )
 
 var (
-	scheme   = runtime.NewScheme()
-	setupLog = ctrl.Log.WithName("setup")
+	scheme             = runtime.NewScheme()
+	setupLog           = ctrl.Log.WithName("setup")
+	errMissingDefaults = errors.New("missing flag -defaults-file")
 )
 
 func init() {
 	_ = clientgoscheme.AddToScheme(scheme)
-
 	_ = grpcv1.AddToScheme(scheme)
 	// +kubebuilder:scaffold:scheme
 }
@@ -52,18 +52,17 @@ func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
 	var namespace string
-	flag.StringVar(&defaultsFile, "defaults-file", "config/defaults.yaml", "The path to a YAML file with a default configuration")
-	flag.StringVar(&metricsAddr, "metrics-addr", ":3777", "The address the metric endpoint binds to.")
-	flag.StringVar(&namespace, "namespace", "", "Limits resources considered to a specific namespace")
-	flag.BoolVar(&enableLeaderElection, "enable-leader-election", false,
-		"Enable leader election for controller manager. "+
-			"Enabling this will ensure there is only one active controller manager.")
+
+	flag.StringVar(&defaultsFile, "defaults-file", "config/defaults.yaml", "path to a YAML file with a default configuration")
+	flag.StringVar(&metricsAddr, "metrics-addr", ":3777", "the address the metric endpoint binds to")
+	flag.StringVar(&namespace, "namespace", "", "limits resources considered to a specific namespace")
+	flag.BoolVar(&enableLeaderElection, "enable-leader-election", false, "enable leader election (ensures only 1 controller is active)")
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 
 	if defaultsFile == "" {
-		setupLog.Error(errors.New("missing defaultsFile flag"), "cannot start without defaults")
+		setupLog.Error(errMissingDefaults, "cannot start without defaults")
 		os.Exit(1)
 	}
 
