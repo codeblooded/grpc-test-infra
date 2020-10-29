@@ -62,29 +62,34 @@ func (r *LoadTestReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	test := new(grpcv1.LoadTest)
-	if err = r.Get(ctx, req.NamespacedName, test); err != nil {
+	fetchedTest := new(grpcv1.LoadTest)
+	if err = r.Get(ctx, req.NamespacedName, fetchedTest); err != nil {
 		log.Error(err, "failed to get test", "name", req.NamespacedName)
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	if test.Status.State.IsTerminated() {
+	if fetchedTest.Status.State.IsTerminated() {
 		return ctrl.Result{}, nil
 	}
 
 	// TODO(codeblooded): Consider moving this to a mutating webhook
-	testWithDefaults := test.DeepCopy()
-	if err = r.Defaults.SetLoadTestDefaults(testWithDefaults); err != nil {
+	test := fetchedTest.DeepCopy()
+	if err = r.Defaults.SetLoadTestDefaults(test); err != nil {
 		log.Error(err, "failed to clone test with defaults")
-		return ctrl.Result{}, err
+		test.Status.State = grpcv1.Errored
+		test.Status.Reason = "FailedWithDefaults"
+		test.Status.Message = fmt.Sprintf("failed to reconcile tests with defaults: %v", err)
 	}
-	if !reflect.DeepEqual(test, testWithDefaults) {
-		if err = r.Update(ctx, testWithDefaults); err != nil {
+	if !reflect.DeepEqual(fetchedTest, test) {
+		if err = r.Update(ctx, test); err != nil {
 			log.Error(err, "failed to update test with defaults")
 			return ctrl.Result{}, err
 		}
 
-		test = testWithDefaults
+		// re-check if terminated, since defaults may have failed
+		if test.Status.State.IsTerminated() {
+			return ctrl.Result{}, nil
+		}
 	}
 
 	pods := new(corev1.PodList)
