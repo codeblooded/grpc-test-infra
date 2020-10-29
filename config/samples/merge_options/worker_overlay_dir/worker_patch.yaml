@@ -1,0 +1,27 @@
+apiVersion: e2etest.grpc.io/v1
+kind: LoadTest
+
+metadata:
+  name: go-example
+
+spec:
+  servers:
+    - language: go
+      clone:
+        repo: https://github.com/grpc/grpc-go.git
+        gitRef: master
+      build:
+        command: ["go"]
+        args: ["build", "-o", "/src/workspace/bin/worker", "./benchmark/worker"]
+      run:
+        command: ["/src/workspace/bin/worker"]
+  clients:
+    - language: go
+      clone:
+        repo: https://github.com/grpc/grpc-go.git
+        gitRef: master
+      build:
+        command: ["go"]
+        args: ["build", "-o", "/src/workspace/bin/worker", "./benchmark/worker"]
+      run:
+        command: ["/src/workspace/bin/worker"]

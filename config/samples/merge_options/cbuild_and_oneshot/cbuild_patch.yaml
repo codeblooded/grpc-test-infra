@@ -1,0 +1,25 @@
+- op: replace
+  path: /spec/servers
+  value:
+    - language: go
+      clone:
+        repo: https://github.com/grpc/grpc-go.git
+        gitRef: master
+      build:
+        command: ["go"]
+        args: ["build", "-o", "/src/workspace/bin/worker", "./benchmark/worker"]
+      run:
+        command: ["/src/workspace/bin/worker"]
+
+- op: replace
+  path: /spec/clients
+  value:
+    - language: go
+      clone:
+        repo: https://github.com/grpc/grpc-go.git
+        gitRef: master
+      build:
+        command: ["go"]
+        args: ["build", "-o", "/src/workspace/bin/worker", "./benchmark/worker"]
+      run:
+        command: ["/src/workspace/bin/worker"]

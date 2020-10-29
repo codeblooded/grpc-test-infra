@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - tests/oneshot_loadtest_1.yaml
+  - tests/oneshot_loadtest_2.yaml
+
+patches:
+  - path: cbuild_patch.yaml
+    target:
+      kind: LoadTest
+
+namePrefix: kokoro-
+
+commonLabels:
+  agent: kokoro
