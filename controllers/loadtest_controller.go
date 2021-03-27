@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -78,11 +79,68 @@ type LoadTestReconciler struct {
 	delete       func(ctx context.Context, obj runtime.Object, opts ...client.DeleteOption) error
 }
 
+// UserError is an error with the test configuration or test itself. It provides
+// fields that are useful for updating the status of the test. It is not related
+// to a problem encountered by the controller. thus the controller is not
+// expected to retry the operation when it is encountered.
+type UserError struct {
+	// Pascal-case string that provides the reason for the error in a few words.
+	// Like all Kubernetes reason strings, this is considered party of the API
+	// and is safe to compare against.
+	Reason string
+
+	// User-legible string that provides a description of the encountered error.
+	Message string
+
+	// Provides access any nested error, if applicable.
+	WrappedError error
+}
+
+func (ue *UserError) Error() string {
+	var errStr []string
+	if ue.Reason != "" {
+		errStr = append(errStr, fmt.Sprintf("[%s]", ue.Reason))
+	}
+	if ue.Message != "" {
+		errStr = append(errStr, ue.Message)
+	}
+	if ue.WrappedError != nil {
+		errStr = append(errStr, ue.WrappedError.Error())
+	}
+	return strings.Join(errStr, " ")
+}
+
+// ControllerError is an unexpected error that occured during the reconciliation
+// of a test. This may be an error with an operation in the controller itself,
+// or it may be a problem with Kubernetes. These errors are not believed to be
+// related to the test configuration or test itself. For this reason, the
+// controller is expected to retry the reconcilation.
+type ControllerError struct {
+	// Time to wait before retrying the operation. A zero value implies the
+	// retry should occur as soon as possible.
+	RetryDelay time.Duration
+
+	// User-legible string that provides a description of the encountered error.
+	Message string
+
+	// Provides access any nested error, if applicable.
+	WrappedError error
+}
+
+func (ce *ControllerError) Error() string {
+	return fmt.Sprintf("%s (retry in %ds)", ce.WrappedError, ce.RetryDelay)
+}
+
+var (
+	userErrorType       = fmt.Sprintf("%T", UserError{})
+	controllerErrorType = fmt.Sprintf("%T", ControllerError{})
+)
+
 // +kubebuilder:rbac:groups=e2etest.grpc.io,resources=loadtests,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=e2etest.grpc.io,resources=loadtests/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=pods/status,verbs=get
-// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resource00s=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=nodes/status,verbs=get
 
@@ -129,53 +187,87 @@ func (r *LoadTestReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 
 	// TODO(codeblooded): Consider moving this to a mutating webhook
 	test := rawTest.DeepCopy()
-	if err = r.Defaults.SetLoadTestDefaults(test); err != nil {
-		log.Error(err, "failed to clone test with defaults")
-		test.Status.State = grpcv1.Errored
-		test.Status.Reason = grpcv1.FailedSettingDefaultsError
-		test.Status.Message = fmt.Sprintf("failed to reconcile tests with defaults: %v", err)
-		if err = r.updateStatus(ctx, test); err != nil {
-			log.Error(err, "failed to update test status when setting defaults failed")
+
+	handleError := func(err error, message string, keysAndValues ...interface{}) (ctrl.Result, error) {
+		switch e := err.(type) {
+		case *UserError:
+			log.Error(err, message, append(keysAndValues,
+				"errorType", userErrorType,
+				"wrappedErrorType", fmt.Sprintf("%T", e.WrappedError),
+			)...)
+			test.Status.State = grpcv1.Errored
+			test.Status.Reason = e.Reason
+			test.Status.Message = e.Message
+			updateErr := r.updateStatus(ctx, test)
+			if updateErr != nil {
+				log.Error(updateErr, "failed to update test status after user error",
+					"previousUserError", e,
+					"errorType", controllerErrorType)
+			}
+			return ctrl.Result{Requeue: true}, updateErr
+		case *ControllerError:
+			log.Error(err, message, append(keysAndValues,
+				"retryDelay", e.RetryDelay,
+				"errorType", controllerErrorType,
+				"wrappedErrorType", fmt.Sprintf("%T", e.WrappedError),
+			)...)
+			if e.RetryDelay > 0 {
+				return ctrl.Result{RequeueAfter: e.RetryDelay}, e
+			}
+			return ctrl.Result{Requeue: true}, e
+		default:
+			log.Error(err, message, append(keysAndValues, "errorType", fmt.Sprintf("%T", e))...)
+			return ctrl.Result{Requeue: true}, e
 		}
-		return ctrl.Result{Requeue: false}, nil
+	}
+
+	if err = r.Defaults.SetLoadTestDefaults(test); err != nil {
+		return handleError(
+			&UserError{
+				Reason:       grpcv1.FailedSettingDefaultsError,
+				WrappedError: err,
+			},
+			fmt.Sprintf("failed to set defaults for missing fields on the test: %v", err),
+			"defaults", r.Defaults,
+			"testSpec", test.Spec,
+		)
 	}
 	if !reflect.DeepEqual(rawTest, test) {
 		if err = r.update(ctx, test); err != nil {
-			log.Error(err, "failed to update test with defaults")
-			return ctrl.Result{Requeue: true}, err
+			return handleError(
+				&ControllerError{
+					WrappedError: err,
+				},
+				"failed to update test after setting defaults for missing fields",
+			)
 		}
 	}
 
 	if err := r.CreateConfigMapIfMissing(ctx, test); err != nil {
-		log.Error(err, "failed to create a scenarios config map", "testScenario", test.Spec.ScenariosJSON)
-		return ctrl.Result{Requeue: true}, err
+		return handleError(err, "failed to create a scenario config map", "testScenario", test.Spec.ScenariosJSON)
 	}
 
 	pods := new(corev1.PodList)
 	if err = r.list(ctx, pods, client.InNamespace(req.Namespace)); err != nil {
-		log.Error(err, "failed to list pods", "namespace", req.Namespace)
-		return ctrl.Result{Requeue: true}, err
+		return handleError(err, "failed to list pods", "namespace", req.Namespace)
 	}
 	ownedPods := status.PodsForLoadTest(test, pods.Items)
 
 	previousStatus := test.Status
 	test.Status = status.ForLoadTest(test, ownedPods)
 	if err = r.updateStatus(ctx, test); err != nil {
-		log.Error(err, "failed to update test status")
-		return ctrl.Result{Requeue: true}, err
+		return handleError(err, "failed to update test status")
 	}
 
 	missingPods := status.CheckMissingPods(test, ownedPods)
 	if !missingPods.IsEmpty() {
 		if !r.mgr.GetCache().WaitForCacheSync(ctx.Done()) {
-			log.Error(errCacheSync, "could not invalidate the cache which is required to gang schedule")
-			return ctrl.Result{Requeue: true}, errCacheSync
+			return handleError(errCacheSync, "could not invalidate the cache which is required to gang schedule")
 		}
 
 		nodes := new(corev1.NodeList)
 		if err = r.list(ctx, nodes); err != nil {
-			log.Error(err, "failed to list nodes")
-			return ctrl.Result{Requeue: true}, err
+			return handleError(err, "failed to list nodes")
 		}
 
 		clusterInfo := CurrentClusterInfo(nodes, pods, r.Defaults.DefaultPoolLabels, log)
@@ -359,8 +451,10 @@ func (r *LoadTestReconciler) CreateConfigMapIfMissing(ctx context.Context, test 
 			// The ConfigMap existence was not at issue, so this is likely an
 			// issue with the Kubernetes API. So, we'll retry with exponential
 			// backoff and allow the timeout to catch it.
-			log.Error(err, "failed to get scenarios ConfigMap (beyond not-found)")
-			return err
+			return &ControllerError{
+				Message:      "failed to search for config map",
+				WrappedError: err,
+			}
 		}
 
 		cfgMap = &corev1.ConfigMap{
@@ -381,13 +475,17 @@ func (r *LoadTestReconciler) CreateConfigMapIfMissing(ctx context.Context, test 
 			// ConfigMap. This breaks garbage collection. If left to continue
 			// for manual cleanup, it could create hidden errors when a load
 			// test with the same name is created.
-			log.Error(refError, "could not set controller reference on scenarios ConfigMap")
-			return refError
+			return &ControllerError{
+				Message:      "could not set owners reference on scenarios ConfigMap",
+				WrappedError: refError,
+			}
 		}
 
 		if createErr := r.create(ctx, cfgMap); createErr != nil {
-			log.Error(err, "failed to create scenarios ConfigMap")
-			return createErr
+			return &ControllerError{
+				Message:      "failed to create scenarios ConfigMap",
+				WrappedError: createErr,
+			}
 		}
 	}
 

@@ -25,7 +25,14 @@ RUN apt-get update && apt-get install -y \
   make \
   libtool \
   libgflags-dev \
-  pkg-config && \
+  pkg-config \
+  python \
+  python-all-dev \
+  python-pip && \
   apt-get clean
 
+RUN pip install six
+
+ADD run.sh /src/run.sh
+RUN chmod a+x /src/run.sh
 CMD ["bash"]
