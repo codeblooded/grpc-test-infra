@@ -32,6 +32,7 @@ import (
 
 	grpcv1 "github.com/grpc/test-infra/api/v1"
 	"github.com/grpc/test-infra/config"
+	"github.com/grpc/test-infra/optional"
 	"github.com/grpc/test-infra/podbuilder"
 	"github.com/grpc/test-infra/status"
 )
@@ -269,6 +270,162 @@ var _ = Describe("LoadTestReconciler", func() {
 				Expect(ok).To(BeFalse())
 				Expect(unknownPool).To(BeEmpty())
 			})
+		})
+	})
+
+	Describe("ClusterCanSchedule", func() {
+		It("returns true with sufficient availability in requested pools", func() {
+			clusterInfo := &ClusterInfo{
+				capacity: map[string]int{
+					"used-pool-1": 3,
+					"used-pool-2": 3,
+					"other-pool":  3,
+				},
+				availability: map[string]int{
+					"used-pool-1": 1,
+					"used-pool-2": 1,
+					"other-pool":  0,
+				},
+				defaultPools: map[string]string{
+					config.ClientRole: "used-pool-1",
+					config.DriverRole: "other-pool",
+					config.ServerRole: "used-pool-2",
+				},
+			}
+
+			missingPods := &status.LoadTestMissing{
+				Clients: []grpcv1.Client{
+					{
+						Pool: optional.StringPtr("used-pool-1"),
+					},
+				},
+				Servers: []grpcv1.Server{
+					{
+						Pool: optional.StringPtr("used-pool-2"),
+					},
+				},
+				NodeCountByPool: map[string]int{
+					"used-pool-1": 1,
+					"used-pool-2": 1,
+				},
+			}
+
+			canSchedule, err := ClusterCanSchedule(clusterInfo, missingPods, nil)
+			Expect(canSchedule).To(BeTrue())
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("returns false with insufficient availability in requested pools", func() {
+			clusterInfo := &ClusterInfo{
+				capacity: map[string]int{
+					"used-pool-1": 3,
+					"used-pool-2": 3,
+					"other-pool":  3,
+				},
+				availability: map[string]int{
+					"used-pool-1": 0,
+					"used-pool-2": 0,
+					"other-pool":  2,
+				},
+				defaultPools: map[string]string{
+					config.ClientRole: "used-pool-1",
+					config.DriverRole: "other-pool",
+					config.ServerRole: "used-pool-2",
+				},
+			}
+
+			missingPods := &status.LoadTestMissing{
+				Clients: []grpcv1.Client{
+					{
+						Pool: optional.StringPtr("used-pool-1"),
+					},
+				},
+				Servers: []grpcv1.Server{
+					{
+						Pool: optional.StringPtr("used-pool-2"),
+					},
+				},
+				NodeCountByPool: map[string]int{
+					"used-pool-1": 1,
+					"used-pool-2": 1,
+				},
+			}
+
+			canSchedule, err := ClusterCanSchedule(clusterInfo, missingPods, nil)
+			Expect(canSchedule).To(BeFalse())
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		// TODO: Add tests to ensure completed pods are ignored during scheduling
+		//It("returns true with sufficient availability in requested pools with completed pods", func() {
+		//	// This test ensures the the controller ignores completed pods when making the scheduling decision.
+		//})
+
+		It("errors when requested pool does not exist", func() {
+			clusterInfo := &ClusterInfo{
+				capacity: map[string]int{
+					"known-pool": 5,
+				},
+				availability: map[string]int{
+					"known-pool": 3,
+				},
+				defaultPools: map[string]string{
+					config.ClientRole: "known-pool",
+					config.DriverRole: "known-pool",
+					config.ServerRole: "known-pool",
+				},
+			}
+
+			missingPods := &status.LoadTestMissing{
+				Servers: []grpcv1.Server{
+					{
+						Pool: optional.StringPtr("unknown-pool"),
+					},
+				},
+				NodeCountByPool: map[string]int{
+					"unknown-pool": 1,
+				},
+			}
+
+			canSchedule, err := ClusterCanSchedule(clusterInfo, missingPods, nil)
+			Expect(canSchedule).To(BeFalse())
+			Expect(err).To(HaveOccurred())
+		})
+
+		It("errors when requested node count exceeds pool capacity", func() {
+			clusterInfo := &ClusterInfo{
+				capacity: map[string]int{
+					"pool-a": 1,
+					"pool-b": 10,
+				},
+				availability: map[string]int{
+					"pool-a": 1,
+					"pool-b": 10,
+				},
+				defaultPools: map[string]string{
+					config.ClientRole: "pool-a",
+					config.DriverRole: "pool-a",
+					config.ServerRole: "pool-a",
+				},
+			}
+
+			missingPods := &status.LoadTestMissing{
+				Clients: []grpcv1.Client{
+					{
+						Pool: optional.StringPtr("pool-a"),
+					},
+					{
+						Pool: optional.StringPtr("pool-a"),
+					},
+				},
+				NodeCountByPool: map[string]int{
+					"pool-a": 2,
+				},
+			}
+
+			canSchedule, err := ClusterCanSchedule(clusterInfo, missingPods, nil)
+			Expect(canSchedule).To(BeFalse())
+			Expect(err).To(HaveOccurred())
 		})
 	})
 })

@@ -286,23 +286,12 @@ func (r *LoadTestReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			},
 		)
 
-		for pool, requiredNodeCount := range missingPods.NodeCountByPool {
-			availableNodeCount, ok := clusterInfo.AvailabilityForPool(pool)
-			if !ok {
-				log.Error(errNonexistentPool, "requested pool does not exist and cannot be considered when scheduling", "requestedPool", pool)
-				test.Status.State = grpcv1.Errored
-				test.Status.Reason = grpcv1.PoolError
-				test.Status.Message = fmt.Sprintf("requested pool %q does not exist", pool)
-				if updateErr := r.updateStatus(ctx, test); updateErr != nil {
-					log.Error(updateErr, "failed to update status after failure due to requesting nodes from a nonexistent pool")
-				}
-				return ctrl.Result{Requeue: false}, nil
-			}
-
-			if requiredNodeCount > availableNodeCount {
-				log.Info("cannot schedule test: inadequate availability for pool", "pool", pool, "requiredNodeCount", requiredNodeCount, "availableNodeCount", availableNodeCount)
-				return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
-			}
+		canSchedule, err := ClusterCanSchedule(clusterInfo, missingPods, log)
+		if err != nil {
+			return handleError(err, "failed to determine if test is schedulable")
+		}
+		if !canSchedule {
+			goto setRequeueTime
 		}
 
 		builder := podbuilder.New(r.Defaults, test)
@@ -422,6 +411,7 @@ func (r *LoadTestReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		}
 	}
 
+setRequeueTime:
 	requeueTime := getRequeueTime(test, previousStatus, log)
 	if requeueTime != 0 {
 		return ctrl.Result{RequeueAfter: requeueTime}, nil
@@ -629,6 +619,35 @@ func adjustAvailabilityForDefaults(clusterInfo *ClusterInfo, missingPods *status
 		missingPods.NodeCountByPool[defaultPoolForRole] += defaultPoolNodeCount
 		delete(missingPods.NodeCountByPool, adjustment.DefaultPoolKey)
 	}
+}
+
+func ClusterCanSchedule(clusterInfo *ClusterInfo, missingPods *status.LoadTestMissing, log logr.Logger) (canSchedule bool, err error) {
+	for pool, requiredNodeCount := range missingPods.NodeCountByPool {
+		availableNodeCount, ok := clusterInfo.AvailabilityForPool(pool)
+		capacity, _ := clusterInfo.CapacityForPool(pool)
+		if !ok {
+			return false, &UserError{
+				Reason:  grpcv1.PoolError,
+				Message: fmt.Sprintf("requested pool %q does not exist", pool),
+			}
+		}
+
+		if requiredNodeCount > capacity {
+			return false, &UserError{
+				Reason:  grpcv1.PoolError,
+				Message: fmt.Sprintf("test requires %d nodes from pool %q which has %d nodes", requiredNodeCount, pool, capacity),
+			}
+		}
+
+		if requiredNodeCount > availableNodeCount {
+			if log != nil {
+				log.Info("cannot schedule test: inadequate availability for pool", "pool", pool, "requiredNodeCount", requiredNodeCount, "availableNodeCount", availableNodeCount)
+			}
+			return false, nil
+		}
+	}
+
+	return true, nil
 }
 
 // getRequeueTime takes a LoadTest and its previous status, compares the
