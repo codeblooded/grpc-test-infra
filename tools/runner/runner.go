@@ -17,9 +17,9 @@ package runner
 
 import (
 	"fmt"
-	"log"
 	"strings"
 	"time"
+	"unicode"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -58,74 +58,74 @@ func NewRunner(loadTestGetter clientset.LoadTestGetter, afterInterval func(), re
 }
 
 // Run runs a set of LoadTests at a given concurrency level.
-func (r *Runner) Run(configs []*grpcv1.LoadTest, suiteReporter *TestSuiteReporter, concurrencyLevel int, done chan string) {
+func (r *Runner) Run(qName string, configs []*grpcv1.LoadTest, logger Logger, concurrencyLevel int, done chan string) {
 	var count, n int
-	qName := suiteReporter.Queue()
-	testDone := make(chan *TestCaseReporter)
+
+	logger.QueueStarted(qName)
+	defer logger.QueueStopped(qName)
+
+	testDone := make(chan *TestInvocation)
 	for _, config := range configs {
 		for n >= concurrencyLevel {
-			reporter := <-testDone
-			reporter.SetEndTime(time.Now())
-			log.Printf("Finished test in queue %s after %v", qName, reporter.TestDuration())
+			invocation := <-testDone
+			invocation.StopTime = time.Now()
+			logger.TestStopped(invocation)
 			n--
 			count++
-			log.Printf("Finished %d tests in queue %s", count, qName)
 		}
 		n++
-		reporter := suiteReporter.NewTestCaseReporter(config)
-		log.Printf("Starting test %d in queue %s", reporter.Index(), qName)
-		reporter.SetStartTime(time.Now())
-		go r.runTest(config, reporter, testDone)
+		invocation := NewTestInvocation(qName, count, config)
+		invocation.StartTime = time.Now()
+		logger.TestStarted(invocation)
+		go r.runTest(invocation, logger, testDone)
 	}
 	for n > 0 {
-		reporter := <-testDone
-		reporter.SetEndTime(time.Now())
-		log.Printf("Finished test in queue %s after %v", qName, reporter.TestDuration())
+		invocation := <-testDone
+		invocation.StopTime = time.Now()
+		logger.TestStopped(invocation)
 		n--
 		count++
-		log.Printf("Finished %d tests in queue %s", count, qName)
 	}
+
 	done <- qName
 }
 
 // runTest creates a single LoadTest and monitors it to completion.
-func (r *Runner) runTest(config *grpcv1.LoadTest, reporter *TestCaseReporter, done chan *TestCaseReporter) {
-	name := nameString(config)
+func (r *Runner) runTest(invocation *TestInvocation, logger Logger, done chan<- *TestInvocation) {
+	config := invocation.Config
 	var s, status string
 	var retries uint
 
 	for {
 		loadTest, err := r.loadTestGetter.Create(config, metav1.CreateOptions{})
 		if err != nil {
-			reporter.Warning("Failed to create test %s: %v", name, err)
 			if retries < r.retries {
 				retries++
-				reporter.Info("Scheduling retry %d/%d to create test", retries, r.retries)
+				logger.Info(invocation, "Failed to create test, scheduling retry %d/%d: %v", retries, r.retries, err)
 				r.afterInterval()
 				continue
 			}
-			reporter.Error("Aborting after %d retries to create test %s: %v", r.retries, name, err)
-			done <- reporter
+			logger.Error(invocation, "Error creating the test", "Aborting after %d retries to create test %s: %v", r.retries, invocation.Name, err)
+			done <- invocation
 			return
 		}
 		retries = 0
-		config.Status = loadTest.Status
-		reporter.Info("Created test %s", name)
+		invocation.Config.Status = loadTest.Status
+		logger.Info(invocation, "Created test %s", invocation.Name)
 		break
 	}
 
 	for {
 		loadTest, err := r.loadTestGetter.Get(config.Name, metav1.GetOptions{})
 		if err != nil {
-			reporter.Warning("Failed to poll test %s: %v", name, err)
 			if retries < r.retries {
 				retries++
-				reporter.Info("Scheduling retry %d/%d to poll test", retries, r.retries)
+				logger.Info(invocation, "Failed to poll test, scheduling retry %d/%d: %v", retries, r.retries, err)
 				r.afterInterval()
 				continue
 			}
-			reporter.Error("Aborting test after %d retries to poll test %s: %v", r.retries, name, err)
-			done <- reporter
+			logger.Error(invocation, "Error polling the test", "Aborting after %d retries to poll test %s: %v", r.retries, invocation.Name, err)
+			done <- invocation
 			return
 		}
 		retries = 0
@@ -134,21 +134,47 @@ func (r *Runner) runTest(config *grpcv1.LoadTest, reporter *TestCaseReporter, do
 		status = statusString(config)
 		switch {
 		case loadTest.Status.State.IsTerminated():
-			reporter.Info("%s", status)
-			done <- reporter
+			if status != "Succeeded" {
+				logger.Error(invocation, "Test failed", "Test failed with reason %q: %v", loadTest.Status.Reason, loadTest.Status.Message)
+			} else {
+				logger.Info(invocation, "Test terminated with a status of %q", status)
+			}
+			done <- invocation
 			return
 		case loadTest.Status.State == grpcv1.Running:
-			reporter.Info("%s", status)
+			logger.Info(invocation, "%s", status)
 			r.afterInterval()
 		default:
 			if s != status {
-				reporter.Info("%s", status)
+				logger.Info(invocation, "%s", status)
 			}
 			// Use a longer polling interval for tests that have not started.
 			r.afterInterval()
 			r.afterInterval()
 		}
 	}
+}
+
+type TestInvocation struct {
+	QueueName string
+	Index     int
+	Name      string
+	Config    *grpcv1.LoadTest
+	StartTime time.Time
+	StopTime  time.Time
+}
+
+func NewTestInvocation(qName string, index int, config *grpcv1.LoadTest) *TestInvocation {
+	return &TestInvocation{
+		QueueName: qName,
+		Index:     index,
+		Name:      nameString(config),
+		Config:    config,
+	}
+}
+
+func (id TestInvocation) String() string {
+	return id.Name
 }
 
 // nameString returns a string to represent the test name in logs.
@@ -193,4 +219,20 @@ func statusString(config *grpcv1.LoadTest) string {
 		s = append(s, message)
 	}
 	return strings.Join(s, "; ")
+}
+
+// Dashify returns the input string where all whitespace and underscore
+// characters have been replaced by dashes and, aside from dashes, only
+// alphanumeric characters remain.
+func Dashify(str string) string {
+	// TODO: Move this into another shared package.
+	b := strings.Builder{}
+	for _, rune := range str {
+		if string(rune) == "_" || unicode.IsSpace(rune) {
+			b.WriteString("-")
+		} else if string(rune) == "-" || unicode.IsLetter(rune) || unicode.IsNumber(rune) {
+			b.WriteRune(rune)
+		}
+	}
+	return b.String()
 }
