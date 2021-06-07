@@ -61,28 +61,22 @@ func NewRunner(loadTestGetter clientset.LoadTestGetter, afterInterval func(), re
 func (r *Runner) Run(qName string, configs []*grpcv1.LoadTest, logger Logger, concurrencyLevel int, done chan string) {
 	var count, n int
 
-	logger.QueueStarted(qName)
-	defer logger.QueueStopped(qName)
-
 	testDone := make(chan *TestInvocation)
 	for _, config := range configs {
 		for n >= concurrencyLevel {
 			invocation := <-testDone
-			invocation.StopTime = time.Now()
-			logger.TestStopped(invocation)
+			logger.Stopped(invocation, time.Now())
 			n--
 			count++
 		}
 		n++
 		invocation := NewTestInvocation(qName, count, config)
-		invocation.StartTime = time.Now()
-		logger.TestStarted(invocation)
+		logger.Started(invocation, time.Now())
 		go r.runTest(invocation, logger, testDone)
 	}
 	for n > 0 {
 		invocation := <-testDone
-		invocation.StopTime = time.Now()
-		logger.TestStopped(invocation)
+		logger.Stopped(invocation, time.Now())
 		n--
 		count++
 	}

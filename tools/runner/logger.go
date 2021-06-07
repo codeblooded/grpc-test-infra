@@ -20,13 +20,12 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"time"
 )
 
 type Logger interface {
-	QueueStarted(name string)
-	QueueStopped(name string)
-	TestStarted(invocation *TestInvocation)
-	TestStopped(invocation *TestInvocation)
+	Started(invocation *TestInvocation, t time.Time)
+	Stopped(invocation *TestInvocation, t time.Time)
 	Info(invocation *TestInvocation, detailsFmt string, args ...interface{})
 	Warning(invocation *TestInvocation, brief, detailsFmt string, args ...interface{})
 	Error(invocation *TestInvocation, brief, detailsFmt string, args ...interface{})
@@ -34,30 +33,17 @@ type Logger interface {
 
 type LoggerList []Logger
 
-// Ensure LoggerList implements the Logger interface.
 var _ Logger = &LoggerList{}
 
-func (ll LoggerList) QueueStarted(qName string) {
+func (ll LoggerList) Started(invocation *TestInvocation, t time.Time) {
 	for _, l := range ll {
-		l.QueueStarted(qName)
+		l.Started(invocation, t)
 	}
 }
 
-func (ll LoggerList) QueueStopped(qName string) {
+func (ll LoggerList) Stopped(invocation *TestInvocation, t time.Time) {
 	for _, l := range ll {
-		l.QueueStopped(qName)
-	}
-}
-
-func (ll LoggerList) TestStarted(invocation *TestInvocation) {
-	for _, l := range ll {
-		l.TestStarted(invocation)
-	}
-}
-
-func (ll LoggerList) TestStopped(invocation *TestInvocation) {
-	for _, l := range ll {
-		l.TestStopped(invocation)
+		l.Stopped(invocation, t)
 	}
 }
 
@@ -84,7 +70,6 @@ type TextLogger struct {
 	prefixFmt string
 }
 
-// Ensure TextLogger implements the Logger interface.
 var _ Logger = &TextLogger{}
 
 func NewTextLogger(out io.Writer, prefixFmt string, flag int) *TextLogger {
@@ -94,20 +79,12 @@ func NewTextLogger(out io.Writer, prefixFmt string, flag int) *TextLogger {
 	}
 }
 
-func (tl *TextLogger) QueueStarted(qName string) {
-	tl.log.Printf("Starting tests in queue %s", qName)
+func (tl *TextLogger) Started(invocation *TestInvocation, t time.Time) {
+	tl.log.Printf("%s Started at %s", tl.prefix(invocation), t.Format("2021/01/02 15:04:05 MST"))
 }
 
-func (tl *TextLogger) QueueStopped(qName string) {
-	tl.log.Printf("Finished tests in queue %s", qName)
-}
-
-func (tl *TextLogger) TestStarted(invocation *TestInvocation) {
-	tl.log.Printf("%s Starting test %d in queue %s", tl.prefix(invocation), invocation.Index, invocation.QueueName)
-}
-
-func (tl *TextLogger) TestStopped(invocation *TestInvocation) {
-	tl.log.Printf("%s Finished test in queue %s", tl.prefix(invocation), invocation.QueueName)
+func (tl *TextLogger) Stopped(invocation *TestInvocation, t time.Time) {
+	tl.log.Printf("%s Stopped at %s", tl.prefix(invocation), t.Format("2021/01/02 15:04:05 MST"))
 }
 
 func (tl *TextLogger) Info(invocation *TestInvocation, detailsFmt string, args ...interface{}) {
@@ -123,5 +100,5 @@ func (tl *TextLogger) Error(invocation *TestInvocation, _, detailsFmt string, ar
 }
 
 func (tl *TextLogger) prefix(invocation *TestInvocation) string {
-	return fmt.Sprintf(tl.prefixFmt, invocation.QueueName, invocation.Index)
+	return fmt.Sprintf(tl.prefixFmt, invocation)
 }

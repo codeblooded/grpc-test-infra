@@ -23,59 +23,40 @@ import (
 	"github.com/grpc/test-infra/tools/runner"
 )
 
-// Logger implements the runner.Logger interface, filling out a JUnit report.
-type Logger struct {
-	report *Report
+type TestCaseLogger struct {
+	reportTestCase *ReportTestCase
 }
 
-// Ensure Logger implements the runner.Logger interface.
-var _ runner.Logger = &Logger{}
+var _ runner.Logger = &TestCaseLogger{}
 
-// NewLogger creates a new Logger instance, given a Report.
-func NewLogger(report *Report) *Logger {
-	return &Logger{
-		report: report,
+func NewTestCaseLogger(rtc *ReportTestCase) *TestCaseLogger {
+	return &TestCaseLogger{
+		reportTestCase: rtc,
 	}
 }
 
-func (jl *Logger) QueueStarted(qName string) {
-	jl.report.RecordSuiteStart(qName, now())
+func (tcl *TestCaseLogger) Started(_ *runner.TestInvocation, t time.Time) {
+	tcl.reportTestCase.SetStartTime(t)
 }
 
-func (jl *Logger) QueueStopped(qName string) {
-	jl.report.RecordSuiteStop(qName, now())
+func (tcl *TestCaseLogger) Stopped(_ *runner.TestInvocation, t time.Time) {
+	tcl.reportTestCase.SetStopTime(t)
 }
 
-func (jl *Logger) TestStarted(invocation *runner.TestInvocation) {
-	jl.report.RecordTestStart(invocation)
-}
+func (tcl *TestCaseLogger) Info(_ *runner.TestInvocation, detailsFmt string, args ...interface{}) {}
 
-func (jl *Logger) TestStopped(invocation *runner.TestInvocation) {
-	jl.report.RecordTestStop(invocation)
-}
-
-func (jl *Logger) Info(invocation *runner.TestInvocation, detailsFmt string, args ...interface{}) {
-	// info messages are not included in JUnit reports
-}
-
-func (jl *Logger) Warning(invocation *runner.TestInvocation, brief, detailsFmt string, args ...interface{}) {
-	jl.report.RecordFailure(invocation, &Failure{
+func (tcl *TestCaseLogger) Warning(_ *runner.TestInvocation, brief, detailsFmt string, args ...interface{}) {
+	tcl.reportTestCase.AddFailure(&Failure{
 		Type:    Warning,
 		Message: brief,
 		Text:    fmt.Sprintf(detailsFmt, args...),
 	})
 }
 
-func (jl *Logger) Error(invocation *runner.TestInvocation, brief, detailsFmt string, args ...interface{}) {
-	jl.report.RecordFailure(invocation, &Failure{
+func (tcl *TestCaseLogger) Error(_ *runner.TestInvocation, brief, detailsFmt string, args ...interface{}) {
+	tcl.reportTestCase.AddFailure(&Failure{
 		Type:    Error,
 		Message: brief,
 		Text:    fmt.Sprintf(detailsFmt, args...),
 	})
-}
-
-// now provides a timestamp for the current moment. By default, it wraps the
-// time.Now function. This wrapping allows time to be mocked for testing.
-var now = func() time.Time {
-	return time.Now()
 }

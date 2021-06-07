@@ -28,18 +28,16 @@ import (
 )
 
 type Report struct {
-	name            string
-	suites          map[string]*TestSuite
-	maxSuiteSeconds float64
-	junitObject     *TestSuites
-	mux             sync.Mutex
+	name      string
+	suites    *TestSuites
+	startTime time.Time
+	mux       sync.Mutex
 }
 
 func NewReport(name string) *Report {
 	return &Report{
-		name:   name,
-		suites: make(map[string]*TestSuite),
-		junitObject: &TestSuites{
+		name: name,
+		suites: &TestSuites{
 			ID:   runner.Dashify(name),
 			Name: name,
 		},
@@ -47,7 +45,7 @@ func NewReport(name string) *Report {
 }
 
 func (r *Report) WriteToStream(w io.Writer, indentSize int) error {
-	bytes, err := xml.MarshalIndent(r.junitObject, "", strings.Repeat(" ", indentSize))
+	bytes, err := xml.MarshalIndent(r.suites, "", strings.Repeat(" ", indentSize))
 	if err != nil {
 		return errors.Wrapf(err, "failed to write JUnit report to stream")
 	}
@@ -63,90 +61,98 @@ func (r *Report) WriteToStream(w io.Writer, indentSize int) error {
 	return nil
 }
 
-func (r *Report) RecordSuiteStart(name string, time time.Time) {
-	suite := r.getOrCreateTestSuite(name)
-	suite.startTime = now()
-
-	r.mux.Lock()
-	defer r.mux.Unlock()
-	if r.junitObject.startTime.IsZero() {
-		r.junitObject.startTime = suite.startTime
-	}
-}
-
-func (r *Report) RecordSuiteStop(name string, time time.Time) {
-	suite := r.getOrCreateTestSuite(name)
-	suite.TimeInSeconds = time.Sub(suite.startTime).Seconds()
-
-	r.mux.Lock()
-	defer r.mux.Unlock()
-	if suite.TimeInSeconds > r.maxSuiteSeconds {
-		r.maxSuiteSeconds = suite.TimeInSeconds
-	}
-}
-
-func (r *Report) RecordTestStart(invocation *runner.TestInvocation) {
-	suite := r.getOrCreateTestSuite(invocation.QueueName)
-	testCase := r.getOrCreateTestCase(invocation)
-	testCase.startTime = invocation.StartTime
-
-	r.mux.Lock()
-	defer r.mux.Unlock()
-	r.junitObject.TestCount += 1
-	suite.TestCount += 1
-}
-
-func (r *Report) RecordTestStop(invocation *runner.TestInvocation) {
-	testCase := r.getOrCreateTestCase(invocation)
-	testCase.TimeInSeconds = invocation.StopTime.Sub(invocation.StartTime).Seconds()
-}
-
-func (r *Report) RecordFailure(invocation *runner.TestInvocation, failure *Failure) {
-	suite := r.getOrCreateTestSuite(invocation.QueueName)
-	testCase := r.getOrCreateTestCase(invocation)
-	testCase.Failures = append(testCase.Failures, failure)
-
-	r.mux.Lock()
-	defer r.mux.Unlock()
-	r.junitObject.FailureCount += 1
-	suite.FailureCount += 1
-}
-
-func (r *Report) getOrCreateTestSuite(qName string) *TestSuite {
-	suite, ok := r.suites[qName]
-	if !ok {
-		suite = &TestSuite{
-			ID:       runner.Dashify(qName),
-			Name:     qName,
-			casesMap: make(map[string]*TestCase),
-		}
-
-		func() {
-			r.mux.Lock()
-			defer r.mux.Unlock()
-			r.suites[qName] = suite
-			r.junitObject.Suites = append(r.junitObject.Suites, suite)
-		}()
+func (r *Report) NewReportTestSuite(name string) *ReportTestSuite {
+	reportTestSuite := &ReportTestSuite{
+		report: r,
+		suite: &TestSuite{
+			ID:   runner.Dashify(name),
+			Name: name,
+		},
 	}
 
-	return suite
+	r.suites.Suites = append(r.suites.Suites, reportTestSuite.suite)
+	return reportTestSuite
 }
 
-func (r *Report) getOrCreateTestCase(invocation *runner.TestInvocation) *TestCase {
-	suite := r.getOrCreateTestSuite(invocation.QueueName)
+func (r *Report) SetStartTime(t time.Time) {
+	r.startTime = t
+}
 
-	testName := invocation.Name
-	testCase, ok := suite.casesMap[testName]
-	if !ok {
-		testCase = &TestCase{
-			ID:        runner.Dashify(invocation.Name),
-			Name:      testName,
-			startTime: now(),
-		}
+func (r *Report) SetStopTime(t time.Time) {
+	r.suites.TimeInSeconds = t.Sub(r.startTime).Seconds()
+}
 
-		suite.casesMap[testName] = testCase
-		suite.Cases = append(suite.Cases, testCase)
+func (r *Report) AddTestCount(delta int) {
+	r.mux.Lock()
+	defer r.mux.Unlock()
+	r.suites.TestCount += delta
+}
+
+func (r *Report) AddFailureCount(delta int) {
+	r.mux.Lock()
+	defer r.mux.Unlock()
+	r.suites.FailureCount += delta
+}
+
+type ReportTestSuite struct {
+	report    *Report
+	suite     *TestSuite
+	startTime time.Time
+	mux       sync.Mutex
+}
+
+func (rts *ReportTestSuite) NewReportTestCase(invocation *runner.TestInvocation) *ReportTestCase {
+	reportTestCase := &ReportTestCase{
+		suite: rts,
+		testCase: &TestCase{
+			ID:   runner.Dashify(invocation.Name),
+			Name: invocation.Name,
+		},
 	}
+	rts.suite.Cases = append(rts.suite.Cases, reportTestCase.testCase)
+	rts.AddTestCount(1)
+	return reportTestCase
+}
 
-	return testCase
+func (rts *ReportTestSuite) SetStartTime(t time.Time) {
+	rts.startTime = t
+}
+
+func (rts *ReportTestSuite) SetStopTime(t time.Time) {
+	rts.suite.TimeInSeconds = t.Sub(rts.startTime).Seconds()
+}
+
+func (rts *ReportTestSuite) AddTestCount(delta int) {
+	rts.report.AddTestCount(delta)
+
+	rts.mux.Lock()
+	defer rts.mux.Unlock()
+	rts.suite.TestCount += delta
+}
+
+func (rts *ReportTestSuite) AddFailureCount(delta int) {
+	rts.report.AddFailureCount(delta)
+
+	rts.mux.Lock()
+	defer rts.mux.Unlock()
+	rts.suite.FailureCount += delta
+}
+
+type ReportTestCase struct {
+	suite     *ReportTestSuite
+	testCase  *TestCase
+	startTime time.Time
+}
+
+func (rtc *ReportTestCase) SetStartTime(t time.Time) {
+	rtc.startTime = t
+}
+
+func (rtc *ReportTestCase) SetStopTime(t time.Time) {
+	rtc.testCase.TimeInSeconds = t.Sub(rtc.startTime).Seconds()
+}
+
+func (rtc *ReportTestCase) AddFailure(failure *Failure) {
+	rtc.suite.AddFailureCount(1)
+	rtc.testCase.Failures = append(rtc.testCase.Failures, failure)
 }

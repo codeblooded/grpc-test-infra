@@ -70,15 +70,27 @@ func main() {
 	done := make(chan string)
 
 	var report *junit.Report
-	loggers := []runner.Logger{
-		runner.NewTextLogger(os.Stdout, logPrefixFmt, 0),
-	}
+	reportTestSuites := make(map[string]*junit.ReportTestSuite)
 	if o != "" {
 		report = junit.NewReport(junitSuitesName)
-		loggers = append(loggers, junit.NewLogger(report))
+		report.SetStartTime(time.Now())
+
+		for qName := range configQueueMap {
+			reportTestSuite := report.NewReportTestSuite(qName)
+			reportTestSuite.SetStartTime(time.Now())
+			reportTestSuites[qName] = reportTestSuite
+		}
 	}
 
+	suites := make(map[string]*junit.ReportTestSuite)
 	for qName, configs := range configQueueMap {
+		invocation := runner.NewTestInvocation(qName)
+		var loggers runner.LoggerList = []runner.Logger{
+			runner.NewTextLogger(os.Stdout, logPrefixFmt, 0),
+		}
+		if reportTestSuite, ok := suites[qName]; ok {
+			loggers = append(loggers, reportTestSuite.NewReportTestCase())
+		}
 		go r.Run(qName, configs, runner.LoggerList(loggers), c[qName], done)
 	}
 
